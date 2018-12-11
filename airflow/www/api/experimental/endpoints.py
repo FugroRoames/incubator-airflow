@@ -26,6 +26,7 @@ from airflow.api.common.experimental import pool as pool_api
 from airflow.api.common.experimental import trigger_dag as trigger
 from airflow.api.common.experimental.get_task import get_task
 from airflow.api.common.experimental.get_task_instance import get_task_instance
+from airflow.api.common.experimental.get_all_dags import get_all_dags
 from airflow.api.common.experimental.get_dag_runs import get_dag_runs
 from airflow.api.common.experimental.get_dag_run_state import get_dag_run_state
 from airflow.api.common.experimental.get_dag_run_by_id import get_dag_run_by_id
@@ -40,6 +41,13 @@ requires_authentication = airflow.api.api_auth.requires_authentication
 
 api_experimental = Blueprint('api_experimental', __name__)
 
+@csrf.exempt
+@api_experimental.route('/dags', methods=['GET'])
+def all_dags():
+    """
+    Get all Dags available.
+    """
+    return jsonify(list(get_all_dags().keys()))
 
 @csrf.exempt
 @api_experimental.route('/dags/<string:dag_id>/dag_runs', methods=['GET'], defaults={'state': 'all'})
