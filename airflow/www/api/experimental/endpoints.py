@@ -45,9 +45,17 @@ api_experimental = Blueprint('api_experimental', __name__)
 @api_experimental.route('/dags', methods=['GET'])
 def all_dags():
     """
-    Get all Dags available.
+    Get all Dags (ids) available, and for each Dag, returns a list of its tasks (ids).
     """
-    return jsonify(list(get_all_dags().keys()))
+    return jsonify(
+        {
+            dag_id: [
+                task.task_id
+                for task in dag.tasks
+            ]
+            for (dag_id, dag) in get_all_dags().items()
+        }
+    )
 
 @csrf.exempt
 @api_experimental.route('/dags/<string:dag_id>/dag_runs', methods=['GET'], defaults={'state': 'all'})
