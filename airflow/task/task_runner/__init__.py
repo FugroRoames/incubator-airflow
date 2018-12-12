@@ -19,6 +19,7 @@
 
 from airflow import configuration
 from airflow.task.task_runner.standard_task_runner import StandardTaskRunner
+from airflow.task.task_runner.lambda_task_runner import LambdaTaskRunner
 from airflow.exceptions import AirflowException
 
 _TASK_RUNNER = configuration.conf.get('core', 'TASK_RUNNER')
@@ -36,6 +37,8 @@ def get_task_runner(local_task_job):
     """
     if _TASK_RUNNER == "StandardTaskRunner":
         return StandardTaskRunner(local_task_job)
+    elif _TASK_RUNNER == "LambdaTaskRunner":
+        return LambdaTaskRunner(local_task_job)
     elif _TASK_RUNNER == "CgroupTaskRunner":
         from airflow.contrib.task_runner.cgroup_task_runner import CgroupTaskRunner
         return CgroupTaskRunner(local_task_job)
