@@ -15,10 +15,12 @@
 
 import jwt
 import json
+import boto3
+import os
 
 from airflow import configuration as conf
 from six.moves.urllib.request import urlopen
-from base64 import urlsafe_b64decode
+from base64 import b64decode
 from jwt.algorithms import RSAAlgorithm
 from jwt.exceptions import DecodeError
 from functools import wraps
@@ -37,14 +39,14 @@ client_auth = None
 
 
 def init_app(app):
-    global SECRET
-    SECRET = get_config_param('client_secret')
+    global KMS_ENCRYPTED_SECRET
+    KMS_ENCRYPTED_SECRET = get_config_param('client_secret')
     global JWKS_URL
     JWKS_URL = "https://" + get_config_param('domain') + ".well-known/jwks.json"
 
 
 def get_config_param(param):
-    return str(conf.get('auth0', param))
+    return str(conf.get('auth0_m2m', param))
 
 
 def jwt_decode(jwt_token, key, options, algorithm):
@@ -106,7 +108,9 @@ def requires_authentication(function):
                     }
 
         if "HS" in algorithm:
-            jwt_decode(jwt_token, urlsafe_b64decode(SECRET), options, algorithm)
+            kms_client = boto3.client('kms', os.environ['AWS_DEFAULT_REGION'])
+            secret = kms_client.decrypt(CiphertextBlob=b64decode(KMS_ENCRYPTED_SECRET))['Plaintext']
+            jwt_decode(jwt_token, secret, options, algorithm)
         elif "RS" in algorithm:
             jsonurl = urlopen(JWKS_URL)
             jwks = json.loads(jsonurl.read())
