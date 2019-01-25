@@ -46,7 +46,7 @@ def init_app(app):
 
 
 def get_config_param(param):
-    return str(conf.get('auth0_m2m', param))
+    return str(conf.get('auth0_rest_api', param))
 
 
 def jwt_decode(jwt_token, key, options, algorithm):
