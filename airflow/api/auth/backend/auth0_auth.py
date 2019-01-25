@@ -42,7 +42,7 @@ def init_app(app):
     global KMS_ENCRYPTED_SECRET
     KMS_ENCRYPTED_SECRET = get_config_param('client_secret')
     global JWKS_URL
-    JWKS_URL = "https://" + get_config_param('domain') + ".well-known/jwks.json"
+    JWKS_URL = "https://" + get_config_param('domain') + "/.well-known/jwks.json"
 
 
 def get_config_param(param):
