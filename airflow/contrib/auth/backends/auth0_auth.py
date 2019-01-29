@@ -17,6 +17,8 @@
 # specific language governing permissions and limitations
 # under the License.
 import flask_login
+import boto3
+import os
 
 # Need to expose these downstream
 # pylint: disable=unused-import
@@ -34,11 +36,13 @@ from airflow import models, configuration
 from airflow.utils.db import provide_session
 from airflow.utils.log.logging_mixin import LoggingMixin
 
+from base64 import b64decode
+
 log = LoggingMixin().log
 
 
 def get_config_param(param):
-    return str(configuration.conf.get('auth0', param))
+    return str(configuration.conf.get('auth0_webui', param))
 
 
 class Auth0User(models.User):
@@ -85,6 +89,9 @@ class Auth0AuthBackend(object):
         self.api_rev = None
         self.auth0_domain = get_config_param('domain')
 
+        kms_client = boto3.client('kms', os.environ['AWS_DEFAULT_REGION'])
+        self.secret = kms_client.decrypt(CiphertextBlob=b64decode(get_config_param('client_secret')))['Plaintext']
+
     def init_app(self, flask_app):
         self.flask_app = flask_app
 
@@ -93,7 +100,7 @@ class Auth0AuthBackend(object):
         self.auth0_oauth = OAuth(self.flask_app).remote_app(
             'auth0',
             consumer_key=get_config_param('client_id'),
-            consumer_secret=get_config_param('client_secret'),
+            consumer_secret=self.secret,
             base_url='https://%s/' % self.auth0_domain,
             request_token_url=None,  # Always None in OAuth2
             access_token_method='POST',
