@@ -52,9 +52,10 @@ def get_config_param(param):
 def jwt_decode(jwt_token, key, options, algorithm):
     try:
         decoded = jwt.decode(jwt_token, key, options=options, algorithms=algorithm)
+        return True
     except:
         log.warn("JWT token error")
-        return _unauthorized()
+        return False
 
 
 def _unauthorized():
@@ -120,7 +121,8 @@ def requires_authentication(function):
                     key_json = key
                     public_key = RSAAlgorithm.from_jwk(json.dumps(key_json))
 
-            jwt_decode(jwt_token, public_key, options, algorithm)
+            if not jwt_decode(jwt_token, public_key, options, algorithm):
+                return _unauthorized()
         else:
             log.warn("Unrecognised encryption algorithm used")
             return _unauthorized()
