@@ -4219,7 +4219,7 @@ class DAG(BaseDag, LoggingMixin):
         # state is None at the moment of creation
         run.verify_integrity(session=session)
 
-        run.refresh_from_db()
+        run.refresh_from_db(session=session)
 
         return run
 
@@ -4746,6 +4746,7 @@ class DagStat(Base):
             log = LoggingMixin().log
             log.warning("Could not update dag stats for %s", dag_id)
             log.exception(e)
+            raise
 
     @staticmethod
     @provide_session

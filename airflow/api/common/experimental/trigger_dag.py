@@ -85,7 +85,7 @@ def trigger_dag(
         run_id=None,
         conf=None,
         execution_date=None,
-        replace_microseconds=True,
+        replace_microseconds=False,
         trigger_sub_dags=True
 ):
     dag_model = DagModel.get_current(dag_id)
