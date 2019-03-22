@@ -17,36 +17,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from airflow.exceptions import DagNotFound, DagRunNotFound
-from airflow.models import DagBag, DagRun
+from airflow import models
+from airflow.exceptions import DagNotFound, DagFileExists
 
 
-def get_dag_run_by_id(dag_id, run_id):
-    """
-    Returns a Dag Run for a specific DAG ID/Run ID.
-    :param dag_id: String identifier of a DAG
-    :param run_id: Dag run id
-    :return: DAG run of the requested run_id
-    """
-    dagbag = DagBag()
+def get_dag_by_id(dag_id):
+    dagbag = models.DagBag()
 
     # Check DAG exists.
     if dag_id not in dagbag.dags:
         error_message = "Dag id {} not found".format(dag_id)
         raise DagNotFound(error_message)
 
-    run = DagRun.find(dag_id=dag_id, run_id=run_id)
-    if run is None or len(run) == 0:
-        error_message = "Dag id {} run_id {} not found".format(dag_id, run_id)
-        raise DagRunNotFound(error_message)
+    dag = dagbag.get_dag(dag_id)
+
+    last_run = dag.get_last_dagrun()
 
     return {
-        'id': run[0].id,
-        'run_id': run[0].run_id,
-        'state': run[0].state,
-        'dag_id': run[0].dag_id,
-        'execution_date': run[0].execution_date.isoformat(),
-        'start_date': ((run[0].start_date or '') and
-                       run[0].start_date.isoformat()),
-        'conf': run[0].conf,
+        'id': dag.dag_id,
+        'desc': dag.description,
+        'owner': dag.owner,
+        'path': dag.full_filepath,
+        'concurrency': dag.concurrency,
+        'schedule': dag.schedule_interval,
+        'paused': dag.is_paused,
+        'params': dag.params,
+        'last_run': last_run.execution_date.isoformat()
+                    if last_run and last_run.execution_date else '',
     }
