@@ -30,6 +30,7 @@ from airflow.api.common.experimental.get_dag_by_id import get_dag_by_id
 from airflow.api.common.experimental.get_dag_runs import get_dag_runs
 from airflow.api.common.experimental.get_dag_run_state import get_dag_run_state
 from airflow.api.common.experimental.get_dag_run_by_id import get_dag_run_by_id
+from airflow.api.common.experimental.list_dags import list_dags
 from airflow.exceptions import AirflowException
 from airflow.utils import timezone
 from airflow.utils.log.logging_mixin import LoggingMixin
@@ -40,6 +41,34 @@ _log = LoggingMixin().log
 requires_authentication = airflow.api.api_auth.requires_authentication
 
 api_experimental = Blueprint('api_experimental', __name__)
+
+
+@csrf.exempt
+@api_experimental.route('/dags', methods=['GET'])
+@requires_authentication
+def get_all_dags():
+    """
+    List all the Dags. Optionally matching given "DAG default argument" value.
+    """
+    argument = request.args.get('argument')
+    value = request.args.get('value')
+
+    if (argument and not value) or (not argument and value):
+        _log.error("both `argument` and `value` query parameters required")
+        response = jsonify(error="{}".format(
+            "both `argument` and `value` query parameters required"))
+        response.status_code = 400
+        return response
+
+    try:
+        dags = list_dags(argument, value)
+    except Exception as err:
+        _log.error(err)
+        response = jsonify(error="{}".format(err))
+        response.status_code = 500
+        return response
+
+    return jsonify(dags)
 
 
 @csrf.exempt
