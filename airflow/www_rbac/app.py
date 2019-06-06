@@ -100,22 +100,28 @@ def create_app(config=None, session=None, testing=False, app_name="Airflow"):
             appbuilder.add_view_no_menu(views.DagModelView())
             appbuilder.add_view_no_menu(views.ConfigurationView())
             appbuilder.add_view_no_menu(views.VersionView())
+
+            enable_all_views = conf.getboolean('roames', 'enable_all_views')
+
             appbuilder.add_view(views.DagRunModelView,
-                                "DAG Runs",
+                                "Runs",
                                 category="Browse",
                                 category_icon="fa-globe")
             appbuilder.add_view(views.JobModelView,
                                 "Jobs",
                                 category="Browse")
-            appbuilder.add_view(views.LogModelView,
-                                "Logs",
-                                category="Browse")
-            appbuilder.add_view(views.SlaMissModelView,
-                                "SLA Misses",
-                                category="Browse")
             appbuilder.add_view(views.TaskInstanceModelView,
                                 "Task Instances",
                                 category="Browse")
+            appbuilder.add_view(views.LogModelView,
+                                "Logs",
+                                category="Browse")
+
+            if enable_all_views:
+                appbuilder.add_view(views.SlaMissModelView,
+                                    "SLA Misses",
+                                    category="Browse")
+
             appbuilder.add_link("Configurations",
                                 href='/configuration',
                                 category="Admin",
@@ -132,13 +138,14 @@ def create_app(config=None, session=None, testing=False, app_name="Airflow"):
             appbuilder.add_view(views.XComModelView,
                                 "XComs",
                                 category="Admin")
-            appbuilder.add_link("Documentation",
-                                href='https://airflow.apache.org/',
-                                category="Docs",
-                                category_icon="fa-cube")
-            appbuilder.add_link("GitHub",
-                                href='https://github.com/apache/airflow',
-                                category="Docs")
+            if enable_all_views:
+                appbuilder.add_link("Documentation",
+                                    href='https://airflow.apache.org/',
+                                    category="Docs",
+                                    category_icon="fa-cube")
+                appbuilder.add_link("GitHub",
+                                    href='https://github.com/apache/airflow',
+                                    category="Docs")
             appbuilder.add_link('Version',
                                 href='/version',
                                 category='About',

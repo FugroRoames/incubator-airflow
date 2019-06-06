@@ -23,8 +23,11 @@ from airflow.api.common.experimental import trigger_dag as trigger
 from airflow.api.common.experimental.get_dag_runs import get_dag_runs
 from airflow.api.common.experimental.get_task import get_task
 from airflow.api.common.experimental.get_task_instance import get_task_instance
+from airflow.api.common.experimental.get_dag_by_id import get_dag_by_id
 from airflow.api.common.experimental.get_code import get_code
 from airflow.api.common.experimental.get_dag_run_state import get_dag_run_state
+from airflow.api.common.experimental.get_dag_run_by_id import get_dag_run_by_id
+from airflow.api.common.experimental.list_dags import list_dags
 from airflow.exceptions import AirflowException
 from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.utils import timezone
@@ -39,6 +42,34 @@ _log = LoggingMixin().log
 requires_authentication = airflow.api.api_auth.requires_authentication
 
 api_experimental = Blueprint('api_experimental', __name__)
+
+
+@csrf.exempt
+@api_experimental.route('/dags', methods=['GET'])
+@requires_authentication
+def get_all_dags():
+    """
+    List all the Dags. Optionally matching given "DAG default argument" value.
+    """
+    argument = request.args.get('argument')
+    value = request.args.get('value')
+
+    if (argument and not value) or (not argument and value):
+        _log.error("both `argument` and `value` query parameters required")
+        response = jsonify(error="{}".format(
+            "both `argument` and `value` query parameters required"))
+        response.status_code = 400
+        return response
+
+    try:
+        dags = list_dags(argument, value)
+    except Exception as err:
+        _log.error(err)
+        response = jsonify(error="{}".format(err))
+        response.status_code = 500
+        return response
+
+    return jsonify(dags)
 
 
 @csrf.exempt
@@ -78,7 +109,7 @@ def trigger_dag(dag_id):
             return response
 
     try:
-        dr = trigger.trigger_dag(dag_id, run_id, conf, execution_date)
+        dr = trigger.trigger_dag(dag_id, run_id, conf, execution_date, trigger_sub_dags=False)
     except AirflowException as err:
         _log.error(err)
         response = jsonify(error="{}".format(err))
@@ -88,8 +119,26 @@ def trigger_dag(dag_id):
     if getattr(g, 'user', None):
         _log.info("User {} created {}".format(g.user, dr))
 
-    response = jsonify(message="Created {}".format(dr))
+    response = jsonify(dr)
     return response
+
+
+@csrf.exempt
+@api_experimental.route('/dags/<string:dag_id>', methods=['GET'])
+@requires_authentication
+def dag_by_id(dag_id):
+    """
+    Get Dag for given dag_id.
+    """
+    try:
+        dag = get_dag_by_id(dag_id)
+    except AirflowException as err:
+        _log.error(err)
+        response = jsonify(error="{}".format(err))
+        response.status_code = err.status_code
+        return response
+
+    return jsonify(dag)
 
 
 @api_experimental.route('/dags/<string:dag_id>/dag_runs', methods=['GET'])
@@ -112,6 +161,61 @@ def dag_runs(dag_id):
         return response
 
     return jsonify(dagruns)
+
+
+@csrf.exempt
+@api_experimental.route('/dags/<string:dag_id>/dag_runs/<string:execution_date>/state', methods=['GET'])
+@requires_authentication
+def dag_run_state(dag_id, execution_date):
+    """
+    Get the state of the particular Dag Run.
+
+    The format for the exec_date is expected to be
+    "YYYY-mm-DDTHH:MM:SS", for example: "2016-11-16T11:34:15". This will
+    of course need to have been encoded for URL in the request.
+    """
+
+    # Convert string datetime into actual datetime
+    try:
+        execution_date = timezone.parse(execution_date)
+    except ValueError:
+        error_message = (
+            'Given execution date, {}, could not be identified '
+            'as a date. Example date format: 2015-11-16T14:34:15+00:00'
+            .format(execution_date))
+        _log.info(error_message)
+        response = jsonify({'error': error_message})
+        response.status_code = 400
+
+        return response
+
+    try:
+        dagruns = get_dag_run_state(dag_id, execution_date)
+    except AirflowException as err:
+        _log.error(err)
+        response = jsonify(error="{}".format(err))
+        response.status_code = err.status_code
+        return response
+
+    return jsonify(items=dagruns)
+
+
+@csrf.exempt
+@api_experimental.route('/dags/<string:dag_id>/dag_runs/<string:run_id>', methods=['GET'])
+@requires_authentication
+def dag_run_by_id(dag_id, run_id):
+    """
+    Get the state of the particular Dag Run.
+    """
+    try:
+        dagrun = get_dag_run_by_id(dag_id, run_id)
+    except AirflowException as err:
+        _log.error(err)
+        response = jsonify(error="{}".format(err))
+        response.status_code = err.status_code
+        return response
+
+    return jsonify(items=dagrun)
 
 
 @api_experimental.route('/test', methods=['GET'])

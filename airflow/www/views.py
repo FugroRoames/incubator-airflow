@@ -374,7 +374,8 @@ class Airflow(BaseView):
     @expose('/')
     @login_required
     def index(self):
-        return self.render('airflow/dags.html')
+        return self.render('airflow/dags.html',
+                           enable_all_views=conf.getboolean('roames', 'enable_all_views'))
 
     @expose('/chart_data')
     @data_profiling_required
@@ -976,6 +977,7 @@ class Airflow(BaseView):
     def xcom(self, session=None):
         dag_id = request.args.get('dag_id')
         task_id = request.args.get('task_id')
+        edit_mode = request.args.get('edit_mode') or 'false'
         # Carrying execution_date through, even though it's irrelevant for
         # this context
         execution_date = request.args.get('execution_date')
@@ -1002,7 +1004,33 @@ class Airflow(BaseView):
             if not xcom.key.startswith('_'):
                 attributes.append((xcom.key, xcom.value))
 
-        title = "XCom"
+        # Get all effective XComs for this task_id
+        effective_xcoms = {}
+        if edit_mode == 'true':
+            effective_xcomlist = session.query(XCom).filter(
+                XCom.dag_id == dag_id,
+                XCom.execution_date == dttm).order_by(XCom.timestamp.asc()).all()
+
+            # Get all the xcoms available for requested_task_id
+            for xcom in effective_xcomlist:
+                if not xcom.key.startswith('_'):
+                    effective_xcoms[xcom.key] = {
+                        'id': xcom.id,
+                        'task_id': xcom.task_id,
+                        'value': json.dumps(xcom.value).encode('UTF-8')
+                    }
+
+            # set xcoms for requested task_id as the final xcom values
+            for xcom in xcomlist:
+                if not xcom.key.startswith('_'):
+                    effective_xcoms[xcom.key] = {
+                        'id': xcom.id,
+                        'task_id': xcom.task_id,
+                        'value': json.dumps(xcom.value).encode('UTF-8')
+                    }
+
+        title = "XCom %s" % (' Edit' if edit_mode == 'true' else ' View')
+
         return self.render(
             'airflow/xcom.html',
             attributes=attributes,
@@ -1010,7 +1038,35 @@ class Airflow(BaseView):
             execution_date=execution_date,
             form=form,
             root=root,
-            dag=dag, title=title)
+            dag=dag, title=title,
+            edit_mode=(edit_mode == 'true'),
+            effective_xcoms=effective_xcoms)
+
+    @expose('/xcom_edit', methods=["POST"])
+    @login_required
+    @wwwutils.action_logging
+    @provide_session
+    def xcom_edit(self, session=None):
+        xcom_id = int(request.form['xcom_id'])
+        xcom_value = str(request.form['value'])
+
+        session.expunge_all()
+
+        query = session.query(XCom).filter(
+            XCom.id == xcom_id).with_for_update()
+
+        # validate edited xcom value
+        try:
+            value = json.dumps(json.loads(xcom_value.decode('UTF-8'))).encode('UTF-8')
+        except ValueError:
+            logging.error("Could not serialize the XCOM value into JSON")
+            raise
+
+        for v in query:
+            v.value = value
+        session.commit()
+
+        return jsonify({'id': xcom_id})
 
     @expose('/run', methods=['POST'])
     @login_required
@@ -1106,6 +1162,95 @@ class Airflow(BaseView):
               " disappear.".format(dag_id))
         # Upon successful delete return to origin
         return redirect(origin)
+
+    @expose('/trigger_dag')
+    @login_required
+    @wwwutils.action_logging
+    @wwwutils.notify_owner
+    @provide_session
+    def trigger_dag(self, session=None):
+        dag_id = request.values.get('dag_id')
+        origin = request.values.get('origin') or "/admin/"
+        dag = dagbag.get_dag(dag_id)
+        title = dag_id.replace('_', ' ').title()
+
+        if not dag:
+            flash("Cannot find dag {}".format(dag_id))
+            return redirect(origin)
+
+        # if no default set then the parameter is assumed to be an input argument (and not a setting) when rendering
+        # the form
+        arguments = {}
+        options = {}
+        num_args = 0
+        for task in dag.params:
+            for param in dag.params[task]:
+                if 'required' in dag.params[task][param] and dag.params[task][param]['required'] is True:
+                    arguments.setdefault(task, {})[param] = dag.params[task][param]
+                    num_args = num_args + 1
+                elif 'default' in dag.params[task][param]:
+                    options.setdefault(task, {})[param] = dag.params[task][param]
+                else:
+                    arguments.setdefault(task, {})[param] = dag.params[task][param]
+                    num_args = num_args + 1
+
+        execution_date = timezone.utcnow()
+        run_id = "manual__{0}".format(execution_date.isoformat())
+
+        return self.render(
+            'airflow/trigger_dag.html', dag=dag, title=title, enumerate=enumerate, len=len,
+            root=request.args.get('root'),
+            demo_mode=conf.getboolean('webserver', 'demo_mode'),
+            enable_all_views=conf.getboolean('roames', 'enable_all_views'),
+            arguments=arguments,
+            options=options,
+            num_args=num_args,
+            run_id=run_id
+        )
+
+    @expose('/trigger_with_conf', methods=["POST"])
+    @login_required
+    @wwwutils.action_logging
+    @wwwutils.notify_owner
+    @provide_session
+    def trigger_with_conf(self, session=None):
+        dag_id = request.values.get('dag_id')
+        origin = request.values.get('origin') or "/admin/"
+        dag = session.query(models.DagModel).filter(models.DagModel.dag_id == dag_id).first()
+
+        if not dag:
+            flash("Cannot find dag {}".format(dag_id))
+            return redirect(origin)
+
+        execution_date = timezone.utcnow()
+        run_id = "manual__{0}".format(execution_date.isoformat())
+
+        run_conf = {}
+        for input in request.form:
+            if input.startswith('conf.'):
+                task = input.split('.')[1]
+                param = input.split('.')[2]
+                run_conf.setdefault(task, {})[param] = request.form[input]
+            elif input == 'run_id':
+                run_id = request.form[input]
+
+        dr = DagRun.find(dag_id=dag_id, run_id=run_id)
+        if dr:
+            flash("This run_id {} already exists".format(run_id))
+            return redirect(origin)
+
+        dag.create_dagrun(
+            run_id=run_id,
+            execution_date=execution_date,
+            state=State.RUNNING,
+            conf=run_conf,
+            external_trigger=True
+        )
+
+        flash(
+            "Triggered {}, "
+            "it should start any moment now.".format(dag_id))
+        return redirect(url_for('airflow.graph', dag_id=dag_id))
 
     @expose('/trigger', methods=['POST'])
     @login_required
@@ -1559,15 +1704,31 @@ class Airflow(BaseView):
 
         arrange = request.args.get('arrange', dag.orientation)
 
+        refresh_rate = 0
+        try:
+            refresh_rate = conf.getint('webserver', 'graph_refresh_rate') * 1000
+        except AirflowConfigException:
+            pass
+
         nodes = []
         edges = []
         for task in dag.tasks:
+            html = '<div style="padding: 5px 10px 5px 10px">'
+            html += ' <text text-anchor="left" style="fill:%s;"><tspan dy="1em" x="1">%s</tspan></text>' % (task.ui_fgcolor, task.task_id)
+            if task.support_progress and refresh_rate > 0:
+                html += ' <div id="progress_%s" class="progress" style="fill: %s;">' % (task.task_id, task.ui_color)
+                html += '  <div id="progress_completed_%s" class="progress-bar progress-bar-success" role="progressbar" style="width:%s"></div>' % (task.task_id, '0%')
+                html += '  <div id="progress_warning_%s" class="progress-bar progress-bar-warning" role="progressbar" style="width:%s"></div>' % (task.task_id, '0%')
+                html += '  <div id="progress_failed_%s" class="progress-bar progress-bar-danger" role="progressbar" style="width:%s"></div>' % (task.task_id, '0%')
+                html += '  <div id="progress_ready_%s" class="progress-bar progress-bar-info progress-bar-striped active" role="progressbar" style="width:%s"></div>' % (task.task_id, '0%')
+                html += ' </div>'
+            html += '</div>'
             nodes.append({
                 'id': task.task_id,
                 'value': {
-                    'label': task.task_id,
-                    'labelStyle': "fill:{0};".format(task.ui_fgcolor),
-                    'style': "fill:{0};".format(task.ui_color),
+                    'labelType': 'html',
+                    'label': html,
+                    'style': "fill:{0};".format(task.ui_color)
                 }
             })
 
@@ -1632,7 +1793,8 @@ class Airflow(BaseView):
             task_instances=task_instances,
             tasks=tasks,
             nodes=nodes,
-            edges=edges)
+            edges=edges,
+            refresh_rate=refresh_rate, )
 
     @expose('/duration')
     @login_required
@@ -2633,7 +2795,7 @@ class JobModelView(ModelViewOnly):
 
 
 class DagRunModelView(ModelViewOnly):
-    verbose_name_plural = "DAG Runs"
+    verbose_name_plural = "Workflow Runs"
     can_edit = True
     can_create = True
     column_editable_list = ('state',)

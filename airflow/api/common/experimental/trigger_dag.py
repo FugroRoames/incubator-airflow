@@ -20,7 +20,7 @@
 import json
 
 from airflow.exceptions import DagRunAlreadyExists, DagNotFound
-from airflow.models import DagRun, DagBag
+from airflow.models import DagRun, DagBag, DagModel
 from airflow.utils import timezone
 from airflow.utils.state import State
 
@@ -33,6 +33,7 @@ def _trigger_dag(
         conf,
         execution_date,
         replace_microseconds,
+        trigger_sub_dags=True
 ):
     if dag_id not in dag_bag.dags:
         raise DagNotFound("Dag id {} not found".format(dag_id))
@@ -77,7 +78,7 @@ def _trigger_dag(
             external_trigger=True,
         )
         triggers.append(trigger)
-        if dag.subdags:
+        if trigger_sub_dags and dag.subdags:
             dags_to_trigger.extend(dag.subdags)
     return triggers
 
@@ -87,9 +88,13 @@ def trigger_dag(
         run_id=None,
         conf=None,
         execution_date=None,
-        replace_microseconds=True,
+        replace_microseconds=False,
+        trigger_sub_dags=True
 ):
-    dagbag = DagBag()
+    dag_model = DagModel.get_current(dag_id)
+    if dag_model is None:
+        raise DagNotFound("Dag id {} not found in DagModel".format(dag_id))
+    dagbag = DagBag(dag_folder=dag_model.fileloc)
     dag_run = DagRun()
     triggers = _trigger_dag(
         dag_id=dag_id,
@@ -99,6 +104,18 @@ def trigger_dag(
         conf=conf,
         execution_date=execution_date,
         replace_microseconds=replace_microseconds,
+        trigger_sub_dags=trigger_sub_dags
     )
 
-    return triggers[0] if triggers else None
+    if triggers:
+        return {
+            'id': triggers[0].id,
+            'run_id': triggers[0].run_id,
+            'state': triggers[0].state,
+            'dag_id': triggers[0].dag_id,
+            'execution_date': triggers[0].execution_date.isoformat(),
+            'start_date': ((triggers[0].start_date or '') and
+                           triggers[0].start_date.isoformat())
+        }
+    else:
+        return {}

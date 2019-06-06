@@ -78,7 +78,10 @@ def setup_event_handlers(engine,
                         err)
                     raise
                 if err.connection_invalidated:
-                    log.warning("DB connection invalidated. Reconnecting...")
+                    if backoff > initial_backoff_seconds:
+                        log.warning("DB connection invalidated. Reconnecting... %d secs" % backoff)
+                    else:
+                        log.debug("DB connection invalidated. Reconnecting... %d secs" % backoff)
 
                     # Use a truncated binary exponential backoff. Also includes
                     # a jitter to prevent the thundering herd problem of
