@@ -60,7 +60,8 @@ import traceback
 import warnings
 import hashlib
 
-from datetime import datetime
+
+from datetime import datetime, date
 from urllib.parse import quote
 
 from sqlalchemy import (
@@ -4484,12 +4485,16 @@ class XCom(Base, LoggingMixin):
         """
         session.expunge_all()
 
+        def default(o):
+            if isinstance(o, (date, datetime)):
+                return o.isoformat()
+
         enable_pickling = configuration.getboolean('core', 'enable_xcom_pickling')
         if enable_pickling:
             value = pickle.dumps(value)
         else:
             try:
-                value = json.dumps(value).encode('UTF-8')
+                value = json.dumps(value, default=default).encode('UTF-8')
             except ValueError:
                 log = LoggingMixin().log
                 log.error("Could not serialize the XCOM value into JSON. "
