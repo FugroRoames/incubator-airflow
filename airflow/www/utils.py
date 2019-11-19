@@ -23,7 +23,7 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import str, object
 
-from cgi import escape
+from html import escape # python3.8 removed `escape` from `cgi` module
 from io import BytesIO as IO
 import functools
 import gzip
